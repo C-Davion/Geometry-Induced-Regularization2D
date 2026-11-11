@@ -1,0 +1,9 @@
+0 : Write funciton that takes the .pt and build the network.
+
+0.5 : Write a function that filtesr runs based on grad cv and configs w/ filter on or off
+
+1: Write function that takes the network and plots the output w/ activation pattern
+
+2: Write function that takes the model and computes the rank and everything.
+
+4: Write function that takes the rank and plots the histograms.
