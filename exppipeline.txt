@@ -1,10 +1,10 @@
 0 : Write funciton that takes the .pt and build the network. DONE
-
-0.25 : add git the toe testdir2D repo on the server.
+  
+0.25 : add git the toe testdir2D repo on the server. DONE
 
 0.5 : Write a function that filtesr runs based on grad cv and configs w/ filter on or off
 
-1: Write function that takes the network and plots the output w/ activation pattern
+1: Write function that takes the network and plots the output w/ activation pattern  DONE
 
 2: Write function that takes the model and computes the rank and everything.
 

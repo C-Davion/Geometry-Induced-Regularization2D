@@ -41,9 +41,9 @@ def train_network(
     timestamp: str = None,
     score: Optional[float] = None,
     out_root: str = "reg_experiments_attention_SGD",
-    dataset_path: str= "generated_datasets\datasets\score_11.36_function_0000_.pt",
+    dataset_path:str = "generated_datasets\datasets\score_11.36_function_0000_.pt",
     rho: LinearFeatureAttention2D = None,
-    grad_tol: float = 1.5e-5,
+    grad_tol: float = 2e-6,
 ):
     """
     Train a OneHiddenLayerReLUNet on a fixed single batch to approximate
@@ -93,7 +93,7 @@ def train_network(
     # print((Y_train - X_train).abs().max().item())
 
      # ── 2. Initialise the network ───────────────────────────────────────────
-    init_scale = 1.0    #Do not touch here, to change it, go to train_attention.py but init_type will be kaiming_uniform
+    init_scale = 4.5    
     init_type  = 'he_uniform' # he_uniform | he_normal | torch_default | xavier_uniform | xavier_normal
                             # lecun_normal | lecun_uniform | orthogonal | trunc_0.02
     bias_type  = 'uniform'    # zeros | uniform | torch_default | normal
@@ -244,8 +244,9 @@ def train_network(
     total_epochs=total_epochs,
     grad_tol=grad_tol,
     initalisation_scale=init_scale,
+    optimizer_config=optimizer_config,
     initialisation_type=f"weight:{init_type},bias:{bias_type},Attention:{rho_type},embedding:{E_dist}",
-    datatset_path=dataset_path
+    dataset_path=dataset_path
     )
     max_jacobian_rank = max(jac_ranks) if jac_ranks else 0
 
@@ -340,39 +341,51 @@ def train_network(
     config_to_save = dict(config)
     with open(out_dir / "config.json", "w") as f:
         json.dump(config_to_save, f, indent=2)
-
-    with open(out_dir / "training_log.json", "w") as f:
-        json.dump(
-            dict(
-            losses=losses,
-            val_losses=val_losses,
-            log_epochs=log_epochs,
-            jacobian_rank=jac_ranks,
-            pattern_rank=pattern_ranks,
-            n_distinct_patterns=n_distinct_list,
-            max_jacobian_rank=max_jacobian_rank,
-            final_gradient_norm=grad_norm,
-            critical_point_reached=critical_point_reached,
-            total_epochs=total_epochs,
-            min_grad_norm=min_grad_norm,
-            min_normalized_grad_norm=min_normalized_grad_norm,
-            epoch_reached=epoch_reached,
-            max_component_at_min_grad_norm=max_coord_at_min,
-            min_component_at_min_grad_norm=min_coord_at_min,
-            last_val_loss=val_losses[-1],
-            min_val_loss=min(val_losses),
-            loss_at_min_grad_norm=loss_at_best_state,
-            val_loss_at_min_grad_norm=val_loss_at_best_state,
-            jac_rank_at_min_grad_norm=jac_rank_at_best_state,
-            p_rank_at_min_grad_norm=p_rank_at_best_state,
-            ndistinct_pattern_at_min_grad_norm=n_dist_at_best_state,
-            optimizer_config=optimizer_config,
-            time_taken=f"Training took {end-start} second",
-            rho_formula=rho.formula,
-            ),
-            f,
-        indent=2,
-        )
+    if epochs>0:
+        with open(out_dir / "training_log.json", "w") as f:
+            json.dump(
+                dict(
+                losses=losses,
+                val_losses=val_losses,
+                log_epochs=log_epochs,
+                jacobian_rank=jac_ranks,
+                pattern_rank=pattern_ranks,
+                n_distinct_patterns=n_distinct_list,
+                max_jacobian_rank=max_jacobian_rank,
+                final_gradient_norm=grad_norm,
+                critical_point_reached=critical_point_reached,
+                total_epochs=total_epochs,
+                min_grad_norm=min_grad_norm,
+                min_normalized_grad_norm=min_normalized_grad_norm,
+                epoch_reached=epoch_reached,
+                max_component_at_min_grad_norm=max_coord_at_min,
+                min_component_at_min_grad_norm=min_coord_at_min,
+                last_val_loss=val_losses[-1],
+                min_val_loss=min(val_losses),
+                loss_at_min_grad_norm=loss_at_best_state,
+                val_loss_at_min_grad_norm=val_loss_at_best_state,
+                jac_rank_at_min_grad_norm=jac_rank_at_best_state,
+                p_rank_at_min_grad_norm=p_rank_at_best_state,
+                ndistinct_pattern_at_min_grad_norm=n_dist_at_best_state,
+                optimizer_config=optimizer_config,
+                time_taken=f"Training took {end-start} second",
+                rho_formula=rho.formula,
+                ),
+                f,
+            indent=2,
+            )
+    else: #for random sampling the weights
+        with open(out_dir / "training_log.json", "w") as f:
+            json.dump(
+                dict(
+                context="No training occured",
+                optimizer_config=optimizer_config,
+                time_taken=f"Training took {end-start} second",
+                rho_formula=rho.formula,
+                ),
+                f,
+            indent=2,
+            )
 
     print(f"Saved all artefacts to: {out_dir}")
     return net, initial_net, out_dir
@@ -381,13 +394,14 @@ def train_network(
 
 # ── Example usage ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-
-    datasets=["generated_datasets\datasets\score_11.36_function_0000_.pt"]
+    print("here")
+   
+    datasets=["generated_datasets/datasets/score_11.36_function_0000_.pt"]
     for hidden_dim in [10]:
-        for epoch in [1000]:
+        for epoch in [-1]:
             for dataset_path in datasets:
                 datas,hyperparams=load_dataset(dataset_path)
-                for i in range(10):
+                for i in range(200):
                         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                         net, initial_net, out_dir = train_network(
                             datas=datas,
@@ -404,7 +418,7 @@ if __name__ == "__main__":
                             epochs=epoch,
                             log_every=500,
                             seed=None,
-                            out_root="reg_experiments_attention_init2D",
+                            out_root="reg_experiments_attention_randomsampling",
                             dataset_path=dataset_path,
                             score=11.36, #TODO change it so that is strips from the datasets path.
                             rho=LinearFeatureAttention2D,

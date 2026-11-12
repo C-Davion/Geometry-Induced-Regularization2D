@@ -5,3 +5,4 @@ __pycache__/
 reg_experiments_attention_init2D/
 *.log
 *.err
+*.sh
