@@ -41,6 +41,7 @@ def train_network(
     timestamp: str = None,
     score: Optional[float] = None,
     out_root: str = "reg_experiments_attention_SGD",
+    dataset_path: str= "generated_datasets\datasets\score_11.36_function_0000_.pt",
     rho: LinearFeatureAttention2D = None,
     grad_tol: float = 1.5e-5,
 ):
@@ -243,7 +244,8 @@ def train_network(
     total_epochs=total_epochs,
     grad_tol=grad_tol,
     initalisation_scale=init_scale,
-    initialisation_type=f"weight:{init_type},bias:{bias_type},Attention:{rho_type},embedding:{E_dist}"
+    initialisation_type=f"weight:{init_type},bias:{bias_type},Attention:{rho_type},embedding:{E_dist}",
+    datatset_path=dataset_path
     )
     max_jacobian_rank = max(jac_ranks) if jac_ranks else 0
 
@@ -403,6 +405,7 @@ if __name__ == "__main__":
                             log_every=500,
                             seed=None,
                             out_root="reg_experiments_attention_init2D",
+                            dataset_path=dataset_path,
                             score=11.36, #TODO change it so that is strips from the datasets path.
                             rho=LinearFeatureAttention2D,
                         )

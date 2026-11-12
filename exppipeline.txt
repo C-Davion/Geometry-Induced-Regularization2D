@@ -1,4 +1,6 @@
-0 : Write funciton that takes the .pt and build the network.
+0 : Write funciton that takes the .pt and build the network. DONE
+
+0.25 : add git the toe testdir2D repo on the server.
 
 0.5 : Write a function that filtesr runs based on grad cv and configs w/ filter on or off
 
