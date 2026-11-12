@@ -1,10 +1,8 @@
-import matplotlib.pyplot as plt
+import os
 from pathlib import Path
 import json
-from buildnetwork import build_network_2d
 FIELDS = ["jac_rank_at_min_grad_norm", "p_rank_at_min_grad_norm","ndistinct_pattern_at_min_grad_norm"]
 BASE_DIR= Path(__file__).resolve().parent / "reg_experiments_attention_init" #change here to swtich between SGD and init for Adam
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 GRAD_THRESHOLD=1.5e-5
 FOLDER_PATTERN = "run_47.77_hxx_date_*"
 import pandas as pd
@@ -42,7 +40,7 @@ def load_run_config(run_dir):
 
 
 def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
-                        threshold=GRAD_THRESHOLD,random_sampling=False,init_scheme_filter='uniform_bias',init_scale_filter=1.0, device=DEVICE, verbose=True): #same as the above function
+                        threshold=GRAD_THRESHOLD,random_sampling=False,init_scheme_filter='uniform_bias',init_scale_filter=1.0, verbose=True): #same as the above function
     """
     Scan base_dir for folders matching folder_pattern and keep the ones
     whose training_log.json reports min_normalized_grad_norm < threshold.
@@ -52,7 +50,7 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
     init_schemes={
         "uniform": "weight:he_uniform,bias:uniform,Attention:xavier_uniform,embedding:normal", #1.0 3.0 6.0
         "normal": "weight:he_normal,bias:normal,Attention:xavier_normal,embedding:normal" , #TEMP #3.0
-        "uniform_bias": "weight:he_uniform,bias:uniform,Attention:xavier_uniform,embedding:normal, embedding_bias:normal" #1.0 6.0
+        "uniform_bias":"weight:he_uniform,bias:uniform,Attention:xavier_uniform,embedding:normal" #1.0 6.0
     }
 
     if verbose:
@@ -63,14 +61,12 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
             continue
         log_file = run_dir / "training_log.json"
         config = load_run_config(run_dir)
-        hidden_dim = config["hidden_dim"]
         init_scheme=config["initialisation_type"]
-        init_scale=config["initialisation_scale"]
+        init_scale=config["initalisation_scale"]
         dataset_path=config["dataset_path"]
-
+        hidden_dim=config[ "hidden_dim"]
 
         entries = _read_json_or_jsonl(log_file)
-        found_good_entry = False
         for data in entries:
             if not isinstance(data, dict):
                 continue
@@ -82,8 +78,9 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
                     record['scheme']=init_scheme_filter
                     record['dataset']=dataset_path
                     record['weight_path']=run_dir.name+"/model_weights.pt"
+                    record['is_random_sampling']=random_sampling
+                    record['hidden_dim']= hidden_dim
                     records.append(record)
-                    found_good_entry=True
                     break
             else:
                 norm = data.get("min_normalized_grad_norm")
@@ -93,8 +90,9 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
                     record['scheme']=init_scheme_filter
                     record['dataset']=dataset_path
                     record['weight_path']=run_dir.name+"/model_weights.pt"
+                    record['is_random_sampling']=random_sampling
+                    record['hidden_dim']= hidden_dim
                     records.append(record)
-                    found_good_entry=True
                     break
 
     df = pd.DataFrame(records)
@@ -106,7 +104,7 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
 
 
 def gather_runs(base_dirs=BASE_DIR,folder_patterns=FOLDER_PATTERN,  threshold=GRAD_THRESHOLD,
-                    random_sampling=False,init_scheme_filter='uniform_bias',init_scale_filter=1.0, device=DEVICE, verbose=True)
+                    random_sampling=False,init_scheme_filter='uniform_bias',init_scale_filter=1.0, verbose=True):
     
     """
     Apply the usual grad-norm filter (expstats_attention) inside every
@@ -131,8 +129,18 @@ def gather_runs(base_dirs=BASE_DIR,folder_patterns=FOLDER_PATTERN,  threshold=GR
                                     init_scheme_filter=init_scheme_filter,init_scale_filter=init_scale_filter,verbose=verbose,)
             if len(df):
                 df = df.copy()
-                df["path to run"] = str(base_dir)+pattern  #TODO to debug
+                df["base_dir"] = base_dir  #TODO to debug
                 dfs.append(df)
     return pd.concat(dfs, ignore_index=True)
 
+
+if __name__=="__main__":
     
+    base_dirs=[
+               # 'reg_experiments_attention_init2D',
+              'reg_experiments_attention_randomsampling']
+    folder_patterns=['run_11.36_h10_*']
+    runs=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
+                     random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=1.0,verbose=True)
+    print(runs.head()['weight_path'])
+    print(runs.columns)

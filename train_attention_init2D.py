@@ -93,7 +93,7 @@ def train_network(
     # print((Y_train - X_train).abs().max().item())
 
      # ── 2. Initialise the network ───────────────────────────────────────────
-    init_scale = 4.5    
+    init_scale = 1.0    #Do not touch here, to change it, go to train_attention.py but init_type will be kaiming_uniform
     init_type  = 'he_uniform' # he_uniform | he_normal | torch_default | xavier_uniform | xavier_normal
                             # lecun_normal | lecun_uniform | orthogonal | trunc_0.02
     bias_type  = 'uniform'    # zeros | uniform | torch_default | normal

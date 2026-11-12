@@ -2,10 +2,17 @@
   
 0.25 : add git the toe testdir2D repo on the server. DONE
 
-0.5 : Write a function that filtesr runs based on grad cv and configs w/ filter on or off
+0.5 : Write a function that filtesr runs based on grad cv and configs w/ filter on or off Done
 
 1: Write function that takes the network and plots the output w/ activation pattern  DONE
 
-2: Write function that takes the model and computes the rank and everything.
+2: Write function that takes the model and computes the rank and everything. DOne, need testing
 
-4: Write function that takes the rank and plots the histograms.
+3: think about what to add in the datafram: by what categoires i need to plot the histograms
+    -> n1
+    ->scheme
+    ->scale
+    -> is randomSampling?
+    So save the df as an object
+
+4: Write function that takes the rank and plots the histograms

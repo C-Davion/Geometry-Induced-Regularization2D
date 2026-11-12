@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 reg_experiments_attention_init2D/
+reg_experiments_attention_randomsampling/
 *.log
 *.err
 *.sh
