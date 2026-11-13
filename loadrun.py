@@ -1,12 +1,14 @@
 import os
 from pathlib import Path
 import json
+from buildnetwork import DEFAULT_DATASET_PATH
 FIELDS = ["jac_rank_at_min_grad_norm", "p_rank_at_min_grad_norm","ndistinct_pattern_at_min_grad_norm"]
 BASE_DIR= Path(__file__).resolve().parent / "reg_experiments_attention_init" #change here to swtich between SGD and init for Adam
 GRAD_THRESHOLD=1.5e-5
 FOLDER_PATTERN = "run_47.77_hxx_date_*"
+from compute_ranks import add_jacobian_ranks, _write_df
 import pandas as pd
-import numpy as np
+
 
 
 def _read_json_or_jsonl(path): #rewrite this function here instead of importing from expstats_attention.py because of the torch pandas import order DLL conflict.
@@ -63,7 +65,10 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
         config = load_run_config(run_dir)
         init_scheme=config["initialisation_type"]
         init_scale=config["initalisation_scale"]
-        dataset_path=config["dataset_path"]
+        try:
+            dataset_path=config["dataset_path"]
+        except KeyError:
+            dataset_path=DEFAULT_DATASET_PATH
         hidden_dim=config[ "hidden_dim"]
 
         entries = _read_json_or_jsonl(log_file)
@@ -135,12 +140,18 @@ def gather_runs(base_dirs=BASE_DIR,folder_patterns=FOLDER_PATTERN,  threshold=GR
 
 
 if __name__=="__main__":
-    
+
     base_dirs=[
-               # 'reg_experiments_attention_init2D',
-              'reg_experiments_attention_randomsampling']
+                #'reg_experiments_attention_init2D',
+                'reg_experiments_attention_randomsampling'
+                ]
     folder_patterns=['run_11.36_h10_*']
-    runs=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
-                     random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=1.0,verbose=True)
-    print(runs.head()['weight_path'])
-    print(runs.columns)
+    runs1=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
+                        random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=1.0,verbose=True)
+    runs2=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
+                            random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=4.5,verbose=True)
+    runs=pd.concat([runs1,runs2],ignore_index=True)
+    runs = add_jacobian_ranks(runs, folder_col='run', weights_col='weight_path',
+                                method='float64', device=DEVICE, dataset_key=DEFAULT_DATASET_PATH)
+    _write_df(runs,'randomsampling_h10_1112.csv')
+    print(runs['rank_full'])

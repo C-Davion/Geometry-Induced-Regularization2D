@@ -40,9 +40,7 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.func import functional_call, jacrev
-
 from buildnetwork import build_network_2d, _load_config, DEFAULT_DATASET_PATH
-
 RHO_PREFIX = "rho."      # named_parameters(): "rho.E", "rho.B", "rho.attention.*"
 
 _METHOD_SPECS = {
@@ -169,7 +167,7 @@ def _load_X_train(dataset_path, run_dir, cache):
 # DataFrame driver
 # ============================================================
 
-def add_jacobian_ranks(df, folder_col="run_folder", weights_col="weights_path",
+def add_jacobian_ranks(df, folder_col="run_folder", base_dir_col='base_dir', weights_col="weights_path",
                        method="float64", device="cpu", dataset_key="dataset_path",
                        default_dataset_path=DEFAULT_DATASET_PATH, verbose_every=25):
     """
@@ -195,13 +193,14 @@ def add_jacobian_ranks(df, folder_col="run_folder", weights_col="weights_path",
 
     cache, results, n_rows, t0 = {}, [], len(df), time.time()
     for k, (_, row) in enumerate(df.iterrows(), start=1):
-        run_dir = Path(row[folder_col])
+        base_dir= Path(row[base_dir_col])
+        run_dir= base_dir / row[folder_col]
         try:
             config = _load_config(run_dir)
             dataset_path = config.get(dataset_key, default_dataset_path)
             X_train = _load_X_train(dataset_path, run_dir, cache)
 
-            net = build_network_2d(row[weights_col], scheme=config.get("scheme"), device=device)
+            net = build_network_2d(base_dir / row[weights_col], scheme=config.get("scheme"), device=device)
             res = jacobian_ranks(net, X_train, method=method, device=device)
             res.update(n_train=int(X_train.shape[0]), rank_error=None)
         except Exception as e:                                   # keep going on a bad row

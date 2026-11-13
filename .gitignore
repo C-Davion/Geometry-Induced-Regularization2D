@@ -7,3 +7,4 @@ reg_experiments_attention_randomsampling/
 *.log
 *.err
 *.sh
+*.csv
