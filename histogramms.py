@@ -215,6 +215,7 @@ def plot_rank_histograms(df, rank_col, filters, method="float64", device="cpu", 
 
 if __name__=="__main__":
     df=_read_df("randomsampling_h10_1112.csv")
+    #df =_read_df("critical_h10_1112.csv")
     fig, ax, groups = plot_rank_histograms(
     df, "rank_full",                       # ou "rank_rho", "rank_rest"
     filters=[(True,  10, "uniform_bias",    1.0),   # (is_random_sampling, hidden_dim, scheme, scale)

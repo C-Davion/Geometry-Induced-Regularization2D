@@ -450,7 +450,7 @@ class LinearFeatureAttention2D(nn.Module):
             if p.requires_grad
         )
     @classmethod
-    def from_parameters(cls, params: dict) -> "LinearFeatureAttention":
+    def from_parameters(cls, params: dict) -> "LinearFeatureAttention2D":
         """Rebuild a module from the dictionary returned by get_parameters()."""
         E = torch.tensor(params["E"], dtype=torch.float32)
         seq_len, input_dim, embed_dim = E.shape

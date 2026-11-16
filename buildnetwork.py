@@ -46,7 +46,7 @@ DTYPE = torch.float32
 _SCHEMES = ("mixed", "separate")
 
 # Used when the run's config.json has no dataset path. Edit to your own path.
-DEFAULT_DATASET_PATH = "generated_datasets\datasets\score_11.36_function_0000_.pt"
+DEFAULT_DATASET_PATH = Path("generated_datasets") /"datasets"/"score_11.36_function_0000_.pt"
 
 
 def _resolve_scheme(scheme: Optional[str], weights_path: Path) -> str:
@@ -108,6 +108,10 @@ def build_network_2d(weights_path, scheme: Optional[str] = None, device=DEVICE,
     # rho's weights (E, B, attention.*).
     net.load_state_dict(state_dict)
     net.eval()
+    num_params = sum(p.numel() for p in net.parameters())
+    rho_params=rho.get_parameter_count()
+    print(f"Total number of parameters: {num_params:,}, feature transform has {rho_params}, E_shape={E_shape}")
+
     return net
 
 
@@ -232,6 +236,8 @@ def plot_pattern_surface(net, x_range, grid=120, output_index=0, ax=None, scatte
 
     ax.plot_surface(GX, GY, Z, facecolors=facecolors, rstride=1, cstride=1,
                     linewidth=0, antialiased=False, shade=False)
+
+    # ax.plot_surface(GX,GY,Z,cmap="viridis",alpha=0.65,edgecolor="none",antialiased=True)
     if scatter_training:
         offset=0.05
         datas,_=load_dataset(dataset_path)
@@ -275,8 +281,8 @@ def plot_network_2d(net, run_dir, grid=120, x_range=None, output_index=0,
 
 
 if __name__=="__main__":
-    run_dir=r"reg_experiments_attention_init2D\run_11.36_h10_1111_2"
-    weight_path=run_dir + r"\model_weights.pt"
+    run_dir = Path("reg_experiments_attention_init2D") / "run_11.36_h10_1111_2"
+    weight_path = run_dir / "model_weights.pt"
     net=build_network_2d(weights_path=weight_path)
     fig, ax,_,_=plot_network_2d(net,run_dir,scatter_training=True)
     plt.show()

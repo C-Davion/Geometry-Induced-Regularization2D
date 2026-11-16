@@ -8,3 +8,4 @@ reg_experiments_attention_randomsampling/
 *.err
 *.sh
 *.csv
+.vscode

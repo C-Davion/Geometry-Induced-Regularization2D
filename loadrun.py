@@ -1,7 +1,6 @@
-import os
 from pathlib import Path
 import json
-from buildnetwork import DEFAULT_DATASET_PATH
+from buildnetwork import DEFAULT_DATASET_PATH, DEVICE
 FIELDS = ["jac_rank_at_min_grad_norm", "p_rank_at_min_grad_norm","ndistinct_pattern_at_min_grad_norm"]
 BASE_DIR= Path(__file__).resolve().parent / "reg_experiments_attention_init" #change here to swtich between SGD and init for Adam
 GRAD_THRESHOLD=1.5e-5
