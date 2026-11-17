@@ -60,7 +60,7 @@ def main():
     ap.add_argument("--folder_seed", type=int, default=0, help="seed for the choice of folders")
     ap.add_argument("--n_runs", type=int, default=32, help="runs (= seeds 0..n_runs-1) per folder")
     ap.add_argument("--keys", nargs="+", default=["full"])
-    ap.add_argument("--method", default="batched", choices=["batched", "per_sample"])
+    ap.add_argument("--jac_method", default="batched", choices=["batched", "per_sample"])
     ap.add_argument("--chunk_size", type=int, default=None)
     ap.add_argument("--device", default="cuda")
     ap.add_argument("--float32", action="store_true")
@@ -88,7 +88,8 @@ def main():
                     model, X = load_model_and_data(path,args.dataset_folder, args.device, args.float32)
                     keys = resolve_keys(model, args.keys)
                     n = X.shape[0]
-                    J = compute_jacobian(model, X, keys, method=args.method, chunk_size=args.chunk_size)
+                    #J = compute_jacobian(model, X, keys, method=args.method, chunk_size=args.chunk_size)
+                    J=jacobian(model,X,keys,jac_method=args.jac_method,chunk_size=args.chunk_size,copy_model=False)['J']
                     print(f"n = {n}, Jacobian shape = {tuple(J.shape)}")
 
                     for seed in range(args.n_runs):

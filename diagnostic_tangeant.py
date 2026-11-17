@@ -29,6 +29,7 @@ from buildnetwork import build_network_2d, DEFAULT_DATASET_PATH
 from helper import load_dataset
 import matplotlib.pyplot as plt
 import numpy as np
+from compute_ranks import jacobian
 
 Keys = Union[str, Sequence[str]]
 
@@ -83,48 +84,7 @@ def load_model_and_data(folder: str, dataset_folder: str, device: str = "cpu", f
 # ----------------------------------------------------------------------------------------
 # 1) The Jacobian
 # ----------------------------------------------------------------------------------------
-def compute_jacobian(
-    model: torch.nn.Module,
-    X: torch.Tensor,
-    keys: Keys = "full",
-    method: str = "batched",
-    chunk_size: Optional[int] = None,
-) -> torch.Tensor:
-    """
-    Jacobian J[i, j] = d model(theta, X)_i / d theta_j  at the current parameters of `model`,
-    restricted to the parameters listed in `keys`. Returns a tensor of shape (n, p_selected).
 
-    method="batched"    : jacrev of the full batched map theta -> model(theta, X).
-                          Exact definition, valid even if samples interact. Costs n backward
-                          passes through the whole batch (O(n^2)); use `chunk_size` for memory.
-    method="per_sample" : vmap of the per-sample gradient. O(n), but equal to the Jacobian of
-                          the batched map only if samples do not interact (eval mode).
-    """
-    model.eval()  # no dropout / BatchNorm batch statistics
-    keys = resolve_keys(model, keys)
-    sel = {k: p.detach() for k, p in model.named_parameters() if k in keys}
-    n = X.shape[0]
-
-    if method == "batched":
-        def f(params):
-            out = functional_call(model, params, (X,))
-            if out.numel() != n:
-                raise ValueError(f"Expected one scalar output per data point ({n}), got shape {tuple(out.shape)}.")
-            return out.reshape(-1)
-
-        jac = jacrev(f, chunk_size=chunk_size)(sel)  # dict: key -> (n, *param.shape)
-    elif method == "per_sample":
-        def f_single(params, x):
-            out = functional_call(model, params, (x.unsqueeze(0),))
-            if out.numel() != 1:
-                raise ValueError(f"Expected a scalar output per data point, got shape {tuple(out.shape)}.")
-            return out.reshape(())
-
-        jac = vmap(grad(f_single), in_dims=(None, 0), chunk_size=chunk_size)(sel)
-    else:
-        raise ValueError("method must be 'batched' or 'per_sample'")
-
-    return _flat(jac, keys, lead_dims=1)  # (n, p_selected)
 
 
 # ----------------------------------------------------------------------------------------
@@ -238,7 +198,7 @@ def main():
     ap.add_argument("--folder", required=True, help="folder containing model_weights.pt")
     ap.add_argument("--dataset_folder",required=False,help="folder containing the dataset.pt",default=DEFAULT_DATASET_PATH)
     ap.add_argument("--keys", nargs="+", default=["full"], help="state_dict keys, or 'full'")
-    ap.add_argument("--method", default="batched", choices=["batched", "per_sample"])
+    ap.add_argument("--jac_method", default="batched", choices=["batched", "per_sample"])
     ap.add_argument("--chunk_size", type=int, default=None)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--t_max", type=float, default=None)
@@ -254,7 +214,8 @@ def main():
     n = X.shape[0]
     print(f"n = {n} data points | selected keys: {keys}")
 
-    J = compute_jacobian(model, X, keys, method=args.method, chunk_size=args.chunk_size)
+    #J = compute_jacobian(model, X, keys, method=args.method, chunk_size=args.chunk_size)
+    J=jacobian(model,X,keys,jac_method=args.jac_method,chunk_size=args.chunk_size,copy_model=False)['J']
     print(f"Jacobian shape: {tuple(J.shape)}  (n x p_selected)")
     print("column layout:", param_layout(model, keys))
 

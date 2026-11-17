@@ -29,17 +29,18 @@ Usage (in a session):
 Usage (command line):
     python jacobian_ranks_2d.py --df runs.pkl --out runs_with_ranks.pkl
 '''
-
+import torch
+from torch.func import functional_call, jacrev
 import argparse
 import copy
 import time
 from contextlib import contextmanager
 from pathlib import Path
-
 import numpy as np
 import pandas as pd
-import torch
-from torch.func import functional_call, jacrev
+
+from typing import Dict, List, Optional, Sequence, Tuple, Union
+
 from buildnetwork import build_network_2d, _load_config, DEFAULT_DATASET_PATH
 RHO_PREFIX = "rho."      # named_parameters(): "rho.E", "rho.B", "rho.attention.*"
 
@@ -50,96 +51,174 @@ _METHOD_SPECS = {
     "float64":       (torch.float64,  None,       False),
     "stable_rank":   (torch.float64,  None,       True),
 }
+Keys = Union[str, Sequence[str]]
 
 # ============================================================
 # Jacobian ranks (same code as the earlier partial-rank module)
 # ============================================================
+"""
+One function that merges `compute_jacobian` (jacobian_study.py) and `jacobian_ranks`.
 
-@contextmanager
-def _default_dtype(dtype):
+    res = jacobian(model, X, keys="full", jac_method="batched",
+                   rank_method=None, ...)
+
+returns {"J": tensor (N*output_dim, p_sel) or None, "layout": {key: (col_start, col_stop)},
+         "ranks": {"rank_full", "rank_rho", "rank_rest"} or None}
+
+Equivalent calls
+----------------
+Old A:  J = compute_jacobian(model, X, keys, method="per_sample", chunk_size=c)
+New  :  J = jacobian(model, X, keys, jac_method="per_sample", chunk_size=c)["J"]
+        (add copy_model=False to also reproduce A's in-place model.eval())
+
+Old B:  r = jacobian_ranks(net, X, method="float64", device="cuda")
+New  :  r = jacobian(net, X, rank_method="float64", device="cuda",
+                     return_jacobian=False, eval_mode=False)["ranks"]
+        (eval_mode=False reproduces B exactly; the default eval_mode=True only differs
+         if the net contains BatchNorm / dropout)
+
+Both at once:
+        res = jacobian(net, X, keys=["W1", "b1"], rank_method="float64", device="cuda")
+        res["J"], res["ranks"], res["layout"]
+"""
+def jacobian(
+    model: torch.nn.Module,
+    X: torch.Tensor,
+    keys: Keys = "full",
+    *,
+    jac_method: str = "batched",
+    chunk_size: Optional[int] = None,
+    dtype: Optional[torch.dtype] = None,
+    device: Optional[Union[str, torch.device]] = None,
+    rank_method: Optional[str] = None,
+    rho_prefix: str = RHO_PREFIX,
+    return_jacobian: bool = True,
+    copy_model: bool = True,
+    eval_mode: bool = True,
+) -> dict:
     """
-    Temporarily change torch's default dtype: LinearFeatureAttention.forward
-    builds torch.ones(seq_len) in the default dtype, which would clash with a
-    float64 input. (Not needed if that forward uses dtype=x.dtype.)
+    Stacked Jacobian J[(i, o), j] = d f(theta, X)_{i,o} / d theta_j of theta -> f(theta, X),
+    restricted to the parameters `keys`, and (optionally) its ranks.
+
+    Arguments
+    ---------
+    model, X        : the network and the batched input (N, ...). The model may return
+                      output_dim >= 1 values per sample; rows are ordered sample-major
+                      (row = i * output_dim + o), as out.flatten() would give.
+    keys            : "full" (all parameters) or names of *parameters* in the state_dict
+                      (buffers are rejected). Columns of J follow the order of `keys`, each
+                      tensor flattened row-major; see res["layout"].
+    jac_method      : "batched"    -> jacrev of the batched map (exact, valid even if samples
+                                      interact; ~N backward passes through the whole batch).
+                      "per_sample" -> vmap(jacrev) of the single-sample map (O(N); equals the
+                                      batched Jacobian only if samples do not interact).
+    chunk_size      : forwarded to jacrev / vmap to limit memory.
+    dtype, device   : cast the (copied) model and X. dtype=None keeps the current one, unless
+                      `rank_method` is given, in which case its spec's dtype is used.
+                      The torch default dtype is set to `dtype` during the computation
+                      (needed e.g. when a forward builds torch.ones(seq_len) in the default dtype).
+                      X is cast only if it is floating-point.
+    rank_method     : None -> no rank computation. Otherwise a key of _METHOD_SPECS giving
+                      (dtype, rtol, stable):  rtol=None -> tolerance max(m, n)*eps*sigma_max,
+                      rtol=r -> singular values <= r*sigma_max are zero, stable=True -> stable
+                      rank ||M||_F^2 / ||M||_2^2 (a float).
+    rho_prefix      : parameters whose name starts with it form J_rho; the others J_rest.
+    return_jacobian : False -> res["J"] is None (saves memory when only the ranks matter).
+    copy_model      : True -> work on a deep copy, `model` is left untouched.
+                      False -> `model` is modified in place (eval mode, dtype/device).
+    eval_mode       : call model.eval() (no dropout, BatchNorm uses running statistics).
     """
-    old = torch.get_default_dtype()
-    torch.set_default_dtype(dtype)
+    # ---- 0. rank spec / dtype --------------------------------------------------------------
+    rtol, stable = None, False
+    if rank_method is not None:
+        if rank_method not in _METHOD_SPECS:
+            raise ValueError(f"rank_method must be one of {list(_METHOD_SPECS)}, got {rank_method!r}")
+        spec_dtype, rtol, stable = _METHOD_SPECS[rank_method]
+        dtype = dtype if dtype is not None else spec_dtype
+
+    # ---- 1. working copy of model and data -----------------------------------------------
+    if copy_model:
+        model = copy.deepcopy(model)
+    if device is not None or dtype is not None:
+        model = model.to(device=device, dtype=dtype)
+    if eval_mode:
+        model.eval()
+    X = X.to(next(model.parameters()).device)
+    if dtype is not None and X.is_floating_point():
+        X = X.to(dtype)
+
+    # ---- 2. keys and column layout ---------------------------------------------------------
+    named = dict(model.named_parameters())
+    if keys is None or keys == "full" or list(keys) == ["full"]:
+        keys = list(named)
+    else:
+        keys = [keys] if isinstance(keys, str) else list(keys)
+        for k in keys:
+            if k not in named:
+                if k in model.state_dict():
+                    raise ValueError(f"'{k}' is a buffer, not a trainable parameter.")
+                raise KeyError(f"'{k}' not found. Available parameters: {list(named)}")
+    layout, offset = {}, 0
+    for k in keys:
+        layout[k] = (offset, offset + named[k].numel())
+        offset += named[k].numel()
+
+    # ---- 3. the Jacobian -------------------------------------------------------------------
+    sel = {k: named[k].detach() for k in keys}
+    n = X.shape[0]
+    old_default = torch.get_default_dtype()
+    if dtype is not None:
+        torch.set_default_dtype(dtype)
     try:
-        yield
+        if jac_method == "batched":
+            def f_batch(p):
+                out = functional_call(model, p, (X,))
+                if out.numel() % n != 0:
+                    raise ValueError(f"Output has {out.numel()} entries, not a multiple of N={n}.")
+                return out.reshape(-1)                      # (N * output_dim,)
+
+            jac = jacrev(f_batch, chunk_size=chunk_size)(sel)       # key -> (N*od, *shape)
+        elif jac_method == "per_sample":
+            def f_single(p, x):
+                return functional_call(model, p, (x.unsqueeze(0),)).reshape(-1)   # (od,)
+
+            jac = vmap(jacrev(f_single), in_dims=(None, 0), chunk_size=chunk_size)(sel)  # key -> (N, od, *shape)
+        else:
+            raise ValueError("jac_method must be 'batched' or 'per_sample'")
     finally:
-        torch.set_default_dtype(old)
+        torch.set_default_dtype(old_default)
 
+    J = torch.cat([jac[k].reshape(-1, named[k].numel()) for k in keys], dim=1)  # (N*od, p_sel)
+    del jac
 
-def _jacobian_blocks(model, X):
-    """
-    Stacked Jacobian of theta -> f(theta, X), one block per parameter:
-    {param_name: np.ndarray of shape (N * output_dim, numel)}.
-    (Dtype is whatever model / X are.)
-    """
-    params = dict(model.named_parameters())
+    # ---- 4. ranks --------------------------------------------------------------------------
+    ranks = None
+    if rank_method is not None:
+        M = J.detach().cpu().numpy()
+        empty = np.empty(0, dtype=int)
+        rho_idx = np.concatenate([np.arange(a, b) for k, (a, b) in layout.items()
+                                  if k.startswith(rho_prefix)] or [empty])
+        rest_idx = np.concatenate([np.arange(a, b) for k, (a, b) in layout.items()
+                                   if not k.startswith(rho_prefix)] or [empty])
 
-    def f_batch(p: dict) -> torch.Tensor:
-        return functional_call(model, p, X).flatten()      # (N * output_dim,)
+        def rank_of(mats):
+            if not mats:
+                return 0.0 if stable else 0
+            A = np.concatenate(mats, axis=1)
+            s = np.linalg.svd(A, compute_uv=False)
+            if s.size == 0 or s[0] == 0:
+                return 0.0 if stable else 0
+            if stable:
+                return float((s ** 2).sum() / s[0] ** 2)
+            tol = rtol if rtol is not None else max(A.shape) * np.finfo(s.dtype).eps
+            return int((s > tol * s[0]).sum())
 
-    jac_dict = jacrev(f_batch)(params)
-    return {
-        name: j.flatten(start_dim=1).detach().cpu().numpy()
-        for name, j in jac_dict.items()
-    }
+        rho = [M[:, rho_idx]] if rho_idx.size else []
+        rest = [M[:, rest_idx]] if rest_idx.size else []
+        ranks = {"rank_full": rank_of(rho + rest), "rank_rho": rank_of(rho), "rank_rest": rank_of(rest)}
+        del M
 
-
-def _rank_of(mats, rtol=None, stable=False):
-    """
-    Rank of the horizontal concatenation of the given 2D arrays (0 if none).
-      rtol=None   : default tolerance max(m, n) * eps(dtype) * sigma_max
-                    (same as torch.linalg.matrix_rank's default)
-      rtol=r      : singular values <= r * sigma_max count as zero
-      stable=True : stable rank ||M||_F^2 / ||M||_2^2 (a float) instead
-    """
-    if not mats:
-        return 0.0 if stable else 0
-    M = np.concatenate(mats, axis=1)
-    s = np.linalg.svd(M, compute_uv=False)
-    if s.size == 0 or s[0] == 0:
-        return 0.0 if stable else 0
-    if stable:
-        return float((s ** 2).sum() / s[0] ** 2)
-    if rtol is None:
-        rtol = max(M.shape) * np.finfo(s.dtype).eps
-    return int((s > rtol * s[0]).sum())
-
-
-def _ranks_from_blocks(blocks, rho_prefix=RHO_PREFIX, rtol=None, stable=False):
-    """
-    (rank(J_rho), rank(J_rest), rank(J_full)) from per-parameter blocks:
-    J_rho = blocks of parameters named "rho.*", J_rest = all the others.
-    """
-    rho = [b for name, b in blocks.items() if name.startswith(rho_prefix)]
-    rest = [b for name, b in blocks.items() if not name.startswith(rho_prefix)]
-    return (_rank_of(rho, rtol, stable),
-            _rank_of(rest, rtol, stable),
-            _rank_of(rho + rest, rtol, stable))
-
-
-def jacobian_ranks(net, X, method="float64", device="cpu"):
-    """
-    Ranks of the full / rho-only / everything-but-rho Jacobian of `net` on X,
-    all from the same Jacobian. Works on a deep copy: `net` is not modified.
-
-    Returns {"rank_full": ..., "rank_rho": ..., "rank_rest": ...}
-    (floats for "stable_rank", ints otherwise).
-    """
-    if method not in _METHOD_SPECS:
-        raise ValueError(f"method must be one of {list(_METHOD_SPECS)}, got {method!r}")
-    dtype, rtol, stable = _METHOD_SPECS[method]
-
-    with _default_dtype(dtype):
-        model = copy.deepcopy(net).to(device=device, dtype=dtype)
-        Xc = X.to(device=device, dtype=dtype)
-        blocks = _jacobian_blocks(model, Xc)
-
-    rank_rho, rank_rest, rank_full = _ranks_from_blocks(blocks, rtol=rtol, stable=stable)
-    return {"rank_full": rank_full, "rank_rho": rank_rho, "rank_rest": rank_rest}
+    return {"J": J if return_jacobian else None, "layout": layout, "ranks": ranks}
 
 # ============================================================
 # Training inputs
@@ -168,7 +247,7 @@ def _load_X_train(dataset_path, run_dir, cache):
 # ============================================================
 
 def add_jacobian_ranks(df, folder_col="run_folder", base_dir_col='base_dir', weights_col="weights_path",
-                       method="float64", device="cpu", dataset_key="dataset_path",
+                       rank_method="float64", device="cpu", dataset_key="dataset_path",
                        default_dataset_path=DEFAULT_DATASET_PATH, verbose_every=25):
     """
     Add Jacobian-rank columns to `df` (in place; `df` is also returned):
@@ -201,8 +280,12 @@ def add_jacobian_ranks(df, folder_col="run_folder", base_dir_col='base_dir', wei
             X_train = _load_X_train(dataset_path, run_dir, cache)
 
             net = build_network_2d(base_dir / row[weights_col], scheme=config.get("scheme"), device=device)
-            res = jacobian_ranks(net, X_train, method=method, device=device)
-            res.update(n_train=int(X_train.shape[0]), rank_error=None)
+            activation_patterns=net.activation_pattern(X_train)
+            num_distinct_pat=torch.unique(activation_patterns,dim=0)[0]
+
+            #res = jacobian_ranks(net, X_train, method=method, device=device)
+            res=jacobian(net,X_train,rank_method=rank_method,device=device,return_jacobian=False,eval_mode=True)["ranks"]
+            res.update(num_distinct_pat=num_distinct_pat,n_train=int(X_train.shape[0]), rank_error=None)
         except Exception as e:                                   # keep going on a bad row
             print(f"[{k}/{n_rows}] {run_dir.name}: FAILED ({type(e).__name__}: {e})")
             res = {"rank_full": None, "rank_rho": None, "rank_rest": None,
@@ -247,7 +330,7 @@ def parse_args(argv=None):
     p.add_argument("--out", default=None, help="output file (default: <df>_with_ranks.<ext>)")
     p.add_argument("--folder-col", default="run_folder")
     p.add_argument("--weights-col", default="weights_path")
-    p.add_argument("--method", choices=list(_METHOD_SPECS), default="float64")
+    p.add_argument("--rank_method", choices=list(_METHOD_SPECS), default="float64")
     p.add_argument("--device", default="cpu")
     p.add_argument("--dataset-key", default="dataset_path")
     return p.parse_args(argv)
@@ -257,7 +340,7 @@ def main(argv=None):
     args = parse_args(argv)
     df = _read_df(args.df)
     df = add_jacobian_ranks(df, folder_col=args.folder_col, weights_col=args.weights_col,
-                            method=args.method, device=args.device, dataset_key=args.dataset_key)
+                            rank_method=args.rank_method, device=args.device, dataset_key=args.dataset_key)
     src = Path(args.df)
     out = args.out or str(src.with_name(f"{src.stem}_with_ranks{src.suffix}"))
     _write_df(df, out)

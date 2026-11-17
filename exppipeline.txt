@@ -6,7 +6,7 @@
 
 1: Write function that takes the network and plots the output w/ activation pattern  DONE
 
-2: Write function that takes the model and computes the rank and everything. DOne, need testing
+2: Write function that takes the model and computes the rank and everything. DOne,
 
 3: think about what to add in the datafram: by what categoires i need to plot the histograms
     -> n1
@@ -14,5 +14,9 @@
     ->scale
     -> is randomSampling?
     So save the df as an object
+    Add the number of pattern
 
-4: Write function that takes the rank and plots the histograms
+4: Write function that takes the rank and plots the histograms  DONE
+
+5 : Refactor 1D code
+

@@ -24,6 +24,6 @@ def _load_X_train(dataset_path, run_dir, cache):
     return cache[key]
 
 if __name__=="__main__":
-    dataset_path=datasets[0]
-    out=_resolve_dataset_path(dataset_path,None)
-    print(out)
+    dircc={}
+    dircc.update(a=1,b=2)
+    print(dircc)
