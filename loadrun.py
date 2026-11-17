@@ -81,7 +81,7 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
                     record['scale']=init_scale_filter
                     record['scheme']=init_scheme_filter
                     record['dataset']=dataset_path
-                    record['weight_path']=run_dir.name+"/model_weights.pt"
+                    record['weight_path']=run_dir /"model_weights.pt"
                     record['is_random_sampling']=random_sampling
                     record['hidden_dim']= hidden_dim
                     records.append(record)
@@ -93,7 +93,7 @@ def load_filtered_runs(base_dir=BASE_DIR, folder_pattern=FOLDER_PATTERN,
                     record['scale']=init_scale_filter
                     record['scheme']=init_scheme_filter
                     record['dataset']=dataset_path
-                    record['weight_path']=run_dir.name+"/model_weights.pt"
+                    record['weight_path']=run_dir / "model_weights.pt"
                     record['is_random_sampling']=random_sampling
                     record['hidden_dim']= hidden_dim
                     records.append(record)
@@ -141,16 +141,16 @@ def gather_runs(base_dirs=BASE_DIR,folder_patterns=FOLDER_PATTERN,  threshold=GR
 if __name__=="__main__":
 
     base_dirs=[
-                #'reg_experiments_attention_init2D',
-                'reg_experiments_attention_randomsampling'
+                'reg_experiments_attention_init2D',
+                #'reg_experiments_attention_randomsampling'
                 ]
     folder_patterns=['run_11.36_h10_*']
     runs1=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
-                        random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=1.0,verbose=True)
-    runs2=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
-                            random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=4.5,verbose=True)
-    runs=pd.concat([runs1,runs2],ignore_index=True)
-    runs = add_jacobian_ranks(runs, folder_col='run', weights_col='weight_path',
-                                method='float64', device=DEVICE, dataset_key=DEFAULT_DATASET_PATH)
-    _write_df(runs,'randomsampling_h10_1112.csv')
-    print(runs['rank_full'])
+                        random_sampling=False,init_scheme_filter='uniform_bias',init_scale_filter=1.0,verbose=True)
+    # runs2=gather_runs(base_dirs,folder_patterns,threshold=GRAD_THRESHOLD,
+    #                        random_sampling=True,init_scheme_filter='uniform_bias',init_scale_filter=4.5,verbose=True)
+    # runs=pd.concat([runs1,runs2],ignore_index=True)
+    # runs = add_jacobian_ranks(runs, folder_col='run', weights_col='weight_path',
+    #                             method='float64', device=DEVICE, dataset_key=DEFAULT_DATASET_PATH)
+    # _write_df(runs,'randomsampling_h10_1112.csv')
+    print(runs1['weight_path'])
